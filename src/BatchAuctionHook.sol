@@ -41,47 +41,36 @@ contract BatchAuctionHook is BaseHook {
         avsOracle = _avsOracle;
     }
 
-    function getHookPermissions()
-        public
-        pure
-        override
-        returns (Hooks.Permissions memory)
-    {
-        return
-            Hooks.Permissions({
-                beforeInitialize: false,
-                afterInitialize: false,
-                beforeAddLiquidity: false,
-                afterAddLiquidity: false,
-                beforeRemoveLiquidity: false,
-                afterRemoveLiquidity: false,
-                beforeSwap: true,
-                afterSwap: true,
-                beforeDonate: false,
-                afterDonate: false,
-                beforeSwapReturnDelta: false,
-                afterSwapReturnDelta: false,
-                afterAddLiquidityReturnDelta: false,
-                afterRemoveLiquidityReturnDelta: false
-            });
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+        return Hooks.Permissions({
+            beforeInitialize: false,
+            afterInitialize: false,
+            beforeAddLiquidity: false,
+            afterAddLiquidity: false,
+            beforeRemoveLiquidity: false,
+            afterRemoveLiquidity: false,
+            beforeSwap: true,
+            afterSwap: true,
+            beforeDonate: false,
+            afterDonate: false,
+            beforeSwapReturnDelta: false,
+            afterSwapReturnDelta: false,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
+        });
     }
 
-    function _beforeSwap(
-        address sender,
-        PoolKey calldata key,
-        SwapParams calldata params,
-        bytes calldata hookData
-    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+    function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
+        internal
+        override
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
         // If hookData is present, treat it as an encrypted intent submission
         if (hookData.length > 0) {
             bytes memory ciphertext = abi.decode(hookData, (bytes));
 
             batchIntents[currentBatchId].push(
-                EncryptedIntent({
-                    ciphertext: ciphertext,
-                    user: sender,
-                    timestamp: block.timestamp
-                })
+                EncryptedIntent({ciphertext: ciphertext, user: sender, timestamp: block.timestamp})
             );
 
             emit IntentSubmitted(currentBatchId, sender);
@@ -95,11 +84,7 @@ contract BatchAuctionHook is BaseHook {
             }
         }
 
-        return (
-            BaseHook.beforeSwap.selector,
-            BeforeSwapDeltaLibrary.ZERO_DELTA,
-            0
-        );
+        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     function _afterSwap(
@@ -126,10 +111,7 @@ contract BatchAuctionHook is BaseHook {
         batchStartTime[currentBatchId] = block.timestamp;
     }
 
-    function processBatchResult(
-        uint256 batchId,
-        bytes calldata avsResult
-    ) external {
+    function processBatchResult(uint256 batchId, bytes calldata avsResult) external {
         require(msg.sender == avsOracle, "Only AVS oracle");
         require(batchFinalized[batchId], "Batch not finalized");
 
@@ -139,9 +121,7 @@ contract BatchAuctionHook is BaseHook {
         // This will be implemented in Week 2
     }
 
-    function getBatchIntents(
-        uint256 batchId
-    ) external view returns (EncryptedIntent[] memory) {
+    function getBatchIntents(uint256 batchId) external view returns (EncryptedIntent[] memory) {
         return batchIntents[batchId];
     }
 

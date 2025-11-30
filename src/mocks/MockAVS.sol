@@ -2,10 +2,7 @@
 pragma solidity ^0.8.24;
 
 interface IBatchAuctionHook {
-    function processBatchResult(
-        uint256 batchId,
-        bytes calldata avsResult
-    ) external;
+    function processBatchResult(uint256 batchId, bytes calldata avsResult) external;
 }
 
 contract MockAVS {
@@ -17,18 +14,10 @@ contract MockAVS {
 
     mapping(uint256 => BatchResult) public batchResults;
 
-    event BatchProcessed(
-        uint256 indexed batchId,
-        uint256 clearingPrice,
-        uint256 totalMatched
-    );
+    event BatchProcessed(uint256 indexed batchId, uint256 clearingPrice, uint256 totalMatched);
     event BatchSubmitted(uint256 indexed batchId, uint256 intentCount);
 
-    function submitBatch(
-        address hookAddress,
-        uint256 batchId,
-        uint256 intentCount
-    ) external {
+    function submitBatch(address hookAddress, uint256 batchId, uint256 intentCount) external {
         emit BatchSubmitted(batchId, intentCount);
 
         // Simulate off-chain FHE computation
@@ -39,24 +28,17 @@ contract MockAVS {
         batchResults[batchId] = BatchResult({
             clearingPrice: mockClearingPrice,
             totalMatched: mockTotalMatched,
-            resultHash: keccak256(
-                abi.encodePacked(batchId, mockClearingPrice, mockTotalMatched)
-            )
+            resultHash: keccak256(abi.encodePacked(batchId, mockClearingPrice, mockTotalMatched))
         });
 
         emit BatchProcessed(batchId, mockClearingPrice, mockTotalMatched);
 
         // Send result back to hook
-        bytes memory avsResult = abi.encode(
-            mockClearingPrice,
-            mockTotalMatched
-        );
+        bytes memory avsResult = abi.encode(mockClearingPrice, mockTotalMatched);
         IBatchAuctionHook(hookAddress).processBatchResult(batchId, avsResult);
     }
 
-    function getBatchResult(
-        uint256 batchId
-    ) external view returns (BatchResult memory) {
+    function getBatchResult(uint256 batchId) external view returns (BatchResult memory) {
         return batchResults[batchId];
     }
 }

@@ -26,14 +26,12 @@ contract BatchAuctionTest is Test, Deployers {
         avs = new MockAVS();
 
         // Deploy Hook
-        address hookAddress = address(
-            uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG)
-        );
+        address hookAddress = address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG));
         deployCodeTo("BatchAuctionHook.sol", abi.encode(manager), hookAddress);
         hook = BatchAuctionHook(hookAddress);
 
         // Initialize pool
-        (key, ) = initPool(
+        (key,) = initPool(
             Currency.wrap(address(0)), // token0
             Currency.wrap(address(1)), // token1
             hook,
@@ -46,7 +44,7 @@ contract BatchAuctionTest is Test, Deployers {
         bytes memory ciphertext = hex"123456";
         bridge.submitIntent(ciphertext);
 
-        (bytes memory storedCiphertext, , ) = bridge.batchIntents(0, 0);
+        (bytes memory storedCiphertext,,) = bridge.batchIntents(0, 0);
         assertEq(storedCiphertext, ciphertext);
     }
 

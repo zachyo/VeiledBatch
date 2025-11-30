@@ -16,11 +16,7 @@ contract IntentBridge {
 
     function submitIntent(bytes calldata ciphertext) external {
         batchIntents[currentBatchId].push(
-            EncryptedIntent({
-                ciphertext: ciphertext,
-                user: msg.sender,
-                timestamp: block.timestamp
-            })
+            EncryptedIntent({ciphertext: ciphertext, user: msg.sender, timestamp: block.timestamp})
         );
 
         emit IntentSubmitted(currentBatchId, msg.sender);
