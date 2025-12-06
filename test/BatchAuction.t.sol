@@ -116,8 +116,8 @@ contract BatchAuctionTest is Test, Deployers {
             memory settlements = new BatchAuctionHook.Settlement[](1);
         settlements[0] = BatchAuctionHook.Settlement({
             user: address(this),
-            amount0: int256(100), // Net buy 100 token0 (so we need to give 100 token0 to user? No, amount0 is flow to user)
-            amount1: int256(-100) // Net sell 100 token1
+            amount0: int256(100), // Net buy 100 token0
+            amount1: int256(-102) // Net sell 102 token1 (extra to cover fees)
         });
 
         // If amount0 = 100, user receives 100 token0.

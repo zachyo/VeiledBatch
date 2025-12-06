@@ -122,7 +122,6 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
         BalanceDelta delta,
         bytes calldata hookData
     ) internal override returns (bytes4, int128) {
-        // Logic for settlement verification
         return (BaseHook.afterSwap.selector, 0);
     }
 
@@ -216,6 +215,25 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
             params,
             new bytes(0)
         );
+
+        // Verify that the swap output covers the batch obligations
+        if (zeroForOne) {
+            // We sold T0 (exact input), bought T1. We need enough T1 to pay users (net1).
+            // net1 should be positive (users receiving T1).
+            // delta.amount1() is positive (received from pool).
+            require(
+                delta.amount1() >= net1,
+                "Slippage: Insufficient T1 output"
+            );
+        } else {
+            // We sold T1 (exact input), bought T0. We need enough T0 to pay users (net0).
+            // net0 should be positive (users receiving T0).
+            // delta.amount0() is positive (received from pool).
+            require(
+                delta.amount0() >= net0,
+                "Slippage: Insufficient T0 output"
+            );
+        }
 
         // Settle token0
         if (delta.amount0() > 0) {
