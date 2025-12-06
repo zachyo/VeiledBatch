@@ -122,16 +122,16 @@ struct EncryptedIntent {
 
 ### Settlement Logic (Priority: P0)
 
-- [ ] Decode AVS results (clearing price, matched volumes)
-- [ ] Execute swaps via PoolManager for matched intents
-- [ ] Handle partial fills
-- [ ] Implement fallback to normal v4 swap for unmatched intents
+- [x] Decode AVS results (clearing price, matched volumes)
+- [x] Execute swaps via PoolManager for matched intents
+- [x] Handle partial fills
+- [x] Implement fallback to normal v4 swap for unmatched intents
 
 ### Enhanced Testing
 
-- [ ] Integration test with actual swaps
-- [ ] Test batch finalization triggers
-- [ ] Test AVS callback flow
+- [x] Integration test with actual swaps
+- [x] Test batch finalization triggers
+- [x] Test AVS callback flow
 - [ ] Gas optimization benchmarks
 
 ### Security
