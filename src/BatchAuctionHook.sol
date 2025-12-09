@@ -27,6 +27,17 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
         int256 amount1;
     }
 
+    struct BatchResult {
+        Settlement[] settlements;  // Matched settlements from AVS
+        uint256[] matchedIndices;  // Which intent indices were matched
+    }
+
+    struct DecodedIntent {
+        bool zeroForOne;           // Swap direction
+        int256 amountSpecified;    // Amount to swap
+        uint160 sqrtPriceLimitX96; // Price limit
+    }
+
     // Batch configuration
     uint256 public constant MAX_BATCH_SIZE = 100;
     uint256 public constant BATCH_TIMEOUT = 30 seconds;
@@ -34,6 +45,7 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
     mapping(uint256 => EncryptedIntent[]) public batchIntents;
     mapping(uint256 => uint256) public batchStartTime;
     mapping(uint256 => bool) public batchFinalized;
+    mapping(uint256 => mapping(uint256 => bool)) public intentProcessed; // batchId => intentIndex => processed
 
     uint256 public currentBatchId;
     address public avsOracle;
@@ -43,6 +55,7 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
     event BatchFinalized(uint256 indexed batchId, uint256 intentCount);
     event BatchProcessed(uint256 indexed batchId, bytes avsResult);
     event BatchSettled(uint256 indexed batchId, int256 net0, int256 net1);
+    event FallbackExecuted(uint256 indexed batchId, uint256 intentIndex, address user, int256 amount0Delta, int256 amount1Delta);
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         batchStartTime[0] = block.timestamp;
@@ -147,14 +160,20 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
 
         emit BatchProcessed(batchId, avsResult);
 
-        Settlement[] memory settlements = abi.decode(avsResult, (Settlement[]));
+        // Decode batch result (settlements + matched indices)
+        BatchResult memory result = abi.decode(avsResult, (BatchResult));
 
-        // Calculate net flow
+        // Mark matched intents as processed
+        for (uint i = 0; i < result.matchedIndices.length; i++) {
+            intentProcessed[batchId][result.matchedIndices[i]] = true;
+        }
+
+        // Calculate net flow from matched settlements
         int256 net0 = 0;
         int256 net1 = 0;
-        for (uint i = 0; i < settlements.length; i++) {
-            net0 += settlements[i].amount0;
-            net1 += settlements[i].amount1;
+        for (uint i = 0; i < result.settlements.length; i++) {
+            net0 += result.settlements[i].amount0;
+            net1 += result.settlements[i].amount1;
         }
 
         // Execute net swap if needed
@@ -162,29 +181,59 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
             poolManager.unlock(abi.encode(net0, net1));
         }
 
-        // Distribute funds to users
-        for (uint i = 0; i < settlements.length; i++) {
-            if (settlements[i].amount0 > 0) {
+        // Distribute funds to matched users
+        for (uint i = 0; i < result.settlements.length; i++) {
+            if (result.settlements[i].amount0 > 0) {
                 activePoolKey.currency0.transfer(
-                    settlements[i].user,
-                    uint256(settlements[i].amount0)
+                    result.settlements[i].user,
+                    uint256(result.settlements[i].amount0)
                 );
             }
-            if (settlements[i].amount1 > 0) {
+            if (result.settlements[i].amount1 > 0) {
                 activePoolKey.currency1.transfer(
-                    settlements[i].user,
-                    uint256(settlements[i].amount1)
+                    result.settlements[i].user,
+                    uint256(result.settlements[i].amount1)
                 );
             }
         }
 
         emit BatchSettled(batchId, net0, net1);
+
+        // Execute fallback swaps for unmatched intents
+        uint256 totalIntents = batchIntents[batchId].length;
+        for (uint i = 0; i < totalIntents; i++) {
+            if (!intentProcessed[batchId][i]) {
+                // Intent was not matched, execute fallback
+                _executeFallbackSwap(batchId, i);
+            }
+        }
     }
 
     function unlockCallback(
         bytes calldata data
     ) external override returns (bytes memory) {
         require(msg.sender == address(poolManager), "Only pool manager");
+
+        // Check if this is a fallback swap or normal batch settlement
+        bool isFallback;
+        assembly {
+            // Load first 32 bytes to check if it's a bool (fallback flag)
+            let firstWord := calldataload(data.offset)
+            isFallback := iszero(iszero(firstWord))
+        }
+
+        // Try to decode as fallback first
+        if (data.length > 64) {
+            // Likely a fallback call
+            (bool fallbackFlag, uint256 batchId, uint256 intentIndex, address user, DecodedIntent memory decoded) =
+                abi.decode(data, (bool, uint256, uint256, address, DecodedIntent));
+
+            if (fallbackFlag) {
+                return _handleFallbackSwap(batchId, intentIndex, user, decoded);
+            }
+        }
+
+        // Normal batch settlement
         (int256 net0, int256 net1) = abi.decode(data, (int256, int256));
 
         // Determine swap direction and amount
@@ -268,6 +317,112 @@ contract BatchAuctionHook is BaseHook, IUnlockCallback {
         }
 
         return "";
+    }
+
+    /// @notice Decode mock encrypted intent (for demo purposes only)
+    /// @dev In production, AVS would decrypt and return these parameters
+    function _decodeIntent(bytes memory ciphertext) internal pure returns (DecodedIntent memory) {
+        // For mock purposes, ciphertext is just abi.encode(bool, int256, uint160)
+        (bool zeroForOne, int256 amountSpecified, uint160 sqrtPriceLimitX96) =
+            abi.decode(ciphertext, (bool, int256, uint160));
+
+        return DecodedIntent({
+            zeroForOne: zeroForOne,
+            amountSpecified: amountSpecified,
+            sqrtPriceLimitX96: sqrtPriceLimitX96
+        });
+    }
+
+    /// @notice Execute fallback swap for an unmatched intent
+    /// @param batchId The batch ID
+    /// @param intentIndex The index of the unmatched intent
+    function _executeFallbackSwap(uint256 batchId, uint256 intentIndex) internal {
+        EncryptedIntent storage intent = batchIntents[batchId][intentIndex];
+
+        // Decode the intent parameters
+        DecodedIntent memory decoded = _decodeIntent(intent.ciphertext);
+
+        // Encode data for fallback unlock callback
+        bytes memory fallbackData = abi.encode(
+            true, // isFallback flag
+            batchId,
+            intentIndex,
+            intent.user,
+            decoded
+        );
+
+        // Execute fallback swap via unlock pattern
+        poolManager.unlock(fallbackData);
+
+        // Mark as processed
+        intentProcessed[batchId][intentIndex] = true;
+    }
+
+    /// @notice Handle fallback swap execution within unlock callback
+    function _handleFallbackSwap(
+        uint256 batchId,
+        uint256 intentIndex,
+        address user,
+        DecodedIntent memory decoded
+    ) internal returns (bytes memory) {
+        // Execute the swap
+        SwapParams memory params = SwapParams({
+            zeroForOne: decoded.zeroForOne,
+            amountSpecified: decoded.amountSpecified,
+            sqrtPriceLimitX96: decoded.sqrtPriceLimitX96
+        });
+
+        BalanceDelta delta = poolManager.swap(activePoolKey, params, new bytes(0));
+
+        // Settle the swap
+        _settleFallbackSwap(user, delta);
+
+        emit FallbackExecuted(batchId, intentIndex, user, delta.amount0(), delta.amount1());
+
+        return "";
+    }
+
+    /// @notice Settle the fallback swap and transfer tokens to user
+    function _settleFallbackSwap(address user, BalanceDelta delta) internal {
+        // First settle debts (negative amounts), then take credits (positive amounts)
+
+        // Settle token0 debt
+        if (delta.amount0() < 0) {
+            poolManager.sync(activePoolKey.currency0);
+            activePoolKey.currency0.transfer(
+                address(poolManager),
+                uint256(int256(-delta.amount0()))
+            );
+            poolManager.settle();
+        }
+
+        // Settle token1 debt
+        if (delta.amount1() < 0) {
+            poolManager.sync(activePoolKey.currency1);
+            activePoolKey.currency1.transfer(
+                address(poolManager),
+                uint256(int256(-delta.amount1()))
+            );
+            poolManager.settle();
+        }
+
+        // Take token0 credit
+        if (delta.amount0() > 0) {
+            poolManager.take(
+                activePoolKey.currency0,
+                user,
+                uint256(int256(delta.amount0()))
+            );
+        }
+
+        // Take token1 credit
+        if (delta.amount1() > 0) {
+            poolManager.take(
+                activePoolKey.currency1,
+                user,
+                uint256(int256(delta.amount1()))
+            );
+        }
     }
 
     function getBatchIntents(
