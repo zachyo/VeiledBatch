@@ -25,11 +25,6 @@ import {Permissioned, Permission} from "@fhenixprotocol/contracts/access/Permiss
  * 4. Results are verified and settlements executed
  * 5. Unmatched intents fallback to normal v4 swaps
  *
- * PRODUCTION DEPLOYMENT REQUIREMENTS:
- * - Deploy on Fhenix testnet/mainnet (has FHE precompiles)
- * - Register AVS operators with EigenLayer
- * - Configure slashing conditions
- * - Set up frontend with Fhenix SDK for client-side encryption
  */
 contract VeiledBatchHook is BaseHook, IUnlockCallback, Permissioned {
     using CurrencyLibrary for Currency;
